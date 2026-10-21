@@ -5,13 +5,14 @@ no secrets, tokens, hostnames, client names or personal paths in commits.
 
 ## Layout
 
-- One script per tool, at the repo root, executable (`chmod +x`).
-- No shared libraries between scripts: each one must work when copied alone.
+- One folder per tool (`<tool>/<tool>.sh`, executable), holding its
+  `.env.example` and, locally, its git-ignored `.env`.
+- No shared libraries between tools: each folder must work when copied alone.
 - Every new script gets a row in the README table and a short usage section.
 
 ## Script conventions
 
-Follow `clean-caches.sh` as the reference:
+Follow `clean-caches/clean-caches.sh` as the reference:
 
 - `#!/usr/bin/env bash` and `set -euo pipefail`.
 - Header comment: what it does, usage lines, what each target/option touches
