@@ -19,8 +19,10 @@ Follow `clean-caches.sh` as the reference:
   the header alone.
 - Default run (no arguments) is read-only: it shows what would happen.
   Destructive actions need an explicit argument.
-- Machine-specific paths go in a variable near the top, overridable from env.
-- Comments in English; messages printed to the user in Italian.
+- Machine-specific paths and settings come from `.env` (git-ignored), loaded
+  from the script's own directory; each has a generic default in the script
+  and is documented in `.env.example`. Never commit `.env`.
+- Everything in English: comments, messages, docs.
 - Skip, don't break: if a target is in use by a running program, say so and
   move on.
 - Check with `bash -n` (and `shellcheck` if available) before committing.

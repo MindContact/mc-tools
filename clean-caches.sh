@@ -12,7 +12,7 @@
 # gradle: ~/.gradle caches, wrapper distributions and daemon logs; the next
 #   build re-downloads dependencies and Gradle itself (slow, but safe).
 # pacman: every cached package, installed or not (needs sudo).
-# avd: every AVD except "lite", the only one kept; "lite" is created if missing.
+# avd: every AVD except $KEEP_AVD (default "lite"), which is created if missing.
 # claude-vm: the Claude desktop VM (Cowork); the app downloads it again on next
 #   use, and whatever was left inside it is lost.
 # node: npm, pnpm and yarn caches, node-gyp headers, the TypeScript cache.
@@ -26,31 +26,37 @@ set -euo pipefail
 # "10.44GB", which an Italian locale would read as 1044 GB.
 export LC_NUMERIC=C
 
-SDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/mnt/Work/lib/dev/android/sdk}}
+# Machine-specific settings live in .env next to the script (see .env.example).
+ENV_FILE="$(dirname "$(readlink -f "$0")")/.env"
+# shellcheck disable=SC1090
+[[ -f $ENV_FILE ]] && { set -a; source "$ENV_FILE"; set +a; }
+
+SDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}
 AVDMANAGER=$SDK/cmdline-tools/latest/bin/avdmanager
-LITE_IMAGE="system-images;android-34;google_apis;x86_64"
+KEEP_AVD=${KEEP_AVD:-lite}
+KEEP_AVD_IMAGE=${KEEP_AVD_IMAGE:-"system-images;android-34;google_apis;x86_64"}
 
 TARGETS=(gradle yay pacman avd claude-vm node pip dotnet maven pub playwright
          browser ide thumbnails journal docker flatpak)
 
 declare -A DESC=(
-  [gradle]="cache, wrapper e daemon di Gradle"
-  [yay]="sorgenti e build AUR"
-  [pacman]="pacchetti scaricati (sudo)"
-  [avd]="AVD Android tranne lite"
-  [claude-vm]="VM dell'app desktop Claude (Cowork)"
+  [gradle]="Gradle caches, wrapper and daemons"
+  [yay]="AUR sources and builds"
+  [pacman]="downloaded packages (sudo)"
+  [avd]="Android AVDs except $KEEP_AVD"
+  [claude-vm]="Claude desktop app VM (Cowork)"
   [node]="npm, pnpm, yarn, node-gyp, TypeScript"
-  [pip]="cache di pip"
-  [dotnet]="pacchetti NuGet"
-  [maven]="repository Maven locale"
-  [pub]="pacchetti Dart/Flutter"
-  [playwright]="browser di Playwright"
-  [browser]="cache di Chrome e Firefox"
-  [ide]="cache di JetBrains, VS Code, Antigravity"
-  [thumbnails]="miniature delle immagini"
-  [journal]="log di sistema oltre 2 settimane (sudo)"
-  [docker]="build cache e immagini senza nome"
-  [flatpak]="runtime flatpak inutilizzati"
+  [pip]="pip cache"
+  [dotnet]="NuGet packages"
+  [maven]="local Maven repository"
+  [pub]="Dart/Flutter packages"
+  [playwright]="Playwright browsers"
+  [browser]="Chrome and Firefox caches"
+  [ide]="JetBrains, VS Code, Antigravity caches"
+  [thumbnails]="image thumbnails"
+  [journal]="system logs older than 2 weeks (sudo)"
+  [docker]="build cache and dangling images"
+  [flatpak]="unused flatpak runtimes"
 )
 
 # paths <target>: the directories a target clears, for sizing
@@ -59,7 +65,7 @@ paths() {
     gradle)     echo ~/.gradle/caches ~/.gradle/wrapper/dists ~/.gradle/daemon ;;
     yay)        echo ~/.cache/yay ;;
     pacman)     echo /var/cache/pacman/pkg ;;
-    avd)        find ~/.android/avd -maxdepth 1 -name '*.avd' ! -name lite.avd 2>/dev/null ;;
+    avd)        find ~/.android/avd -maxdepth 1 -name '*.avd' ! -name "$KEEP_AVD.avd" 2>/dev/null ;;
     claude-vm)  echo ~/.config/Claude/vm_bundles ~/.config/Claude/claude-code-vm ;;
     node)       echo ~/.npm/_cacache ~/.cache/pnpm ~/.cache/yarn ~/.cache/node-gyp ~/.cache/typescript ;;
     pip)        echo ~/.cache/pip ;;
@@ -100,7 +106,7 @@ human() { [[ -n $1 ]] && numfmt --to=iec --suffix=B "$1" || echo "?"; }
 # running <pattern> <target>: true (and says so) while a matching process runs
 running() {
   pgrep -f "$1" >/dev/null || return 1
-  echo "$2: programma in uso, salto (chiudilo e riprova)" >&2
+  echo "$2: in use, skipped (close it and retry)" >&2
 }
 
 list() {
@@ -111,14 +117,14 @@ list() {
     rows+=("${b:--1} $t")
     total=$(( total + ${b:-0} ))
   done
-  printf '%-11s %8s  %s\n' CACHE SPAZIO COSA
+  printf '%-11s %8s  %s\n' CACHE SIZE WHAT
   while read -r b t; do
     [[ $b == -1 ]] && b=""
     printf '%-11s %8s  %s\n' "$t" "$(human "$b")" "${DESC[$t]}"
   done < <(printf '%s\n' "${rows[@]}" | sort -k1,1nr)
-  printf '%-11s %8s\n' totale "$(human "$total")"
+  printf '%-11s %8s\n' total "$(human "$total")"
   echo
-  echo "pulisci: $0 all  oppure  $0 <cache> [<cache>...]"
+  echo "clean: $0 all  or  $0 <cache> [<cache>...]"
 }
 
 clean() {
@@ -142,14 +148,14 @@ clean() {
       for ini in ~/.android/avd/*.ini; do
         [[ -e $ini ]] || continue
         name=$(basename "$ini" .ini)
-        [[ $name == lite ]] && continue
-        echo "  elimino $name"
+        [[ $name == "$KEEP_AVD" ]] && continue
+        echo "  deleting $name"
         rm -rf ~/.android/avd/"$name".avd "$ini"
       done
-      if [[ ! -e ~/.android/avd/lite.ini ]]; then
-        echo "  creo lite ($LITE_IMAGE, pixel_6, 2 GB)"
-        echo no | "$AVDMANAGER" create avd -n lite -k "$LITE_IMAGE" -d pixel_6 >/dev/null
-        local cfg=~/.android/avd/lite.avd/config.ini
+      if [[ ! -e ~/.android/avd/$KEEP_AVD.ini ]]; then
+        echo "  creating $KEEP_AVD ($KEEP_AVD_IMAGE, pixel_6, 2 GB)"
+        echo no | "$AVDMANAGER" create avd -n "$KEEP_AVD" -k "$KEEP_AVD_IMAGE" -d pixel_6 >/dev/null
+        local cfg=~/.android/avd/$KEEP_AVD.avd/config.ini
         sed -i 's/^hw.ramSize.*/hw.ramSize = 2048/' "$cfg"
         grep -q '^hw.ramSize' "$cfg" || echo 'hw.ramSize = 2048' >> "$cfg"
       fi ;;
@@ -201,9 +207,9 @@ if [[ $* == all ]]; then
 else
   selected=("$@")
   for t in "${selected[@]}"; do
-    [[ -n ${DESC[$t]:-} ]] || { echo "sconosciuto: $t (lancia senza argomenti per l'elenco)" >&2; exit 1; }
+    [[ -n ${DESC[$t]:-} ]] || { echo "unknown: $t (run without arguments for the list)" >&2; exit 1; }
   done
 fi
 
 for t in "${selected[@]}"; do clean "$t"; done
-echo "fatto"
+echo "done"
