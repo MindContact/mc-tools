@@ -4,7 +4,18 @@ Small public utility scripts by [MindContact](https://github.com/MindContact).
 Each script is self-contained: copy it, read the header, run it.
 
 Written for Linux (developed on Manjaro/Arch); a script that needs something
-specific says so in its header. Script output is in Italian.
+specific says so in its header.
+
+## Configuration
+
+Machine-specific paths and settings live in a `.env` file next to the scripts,
+loaded automatically when present. Start from the template:
+
+```bash
+cp .env.example .env   # then edit; .env is git-ignored
+```
+
+Every value is optional; see [`.env.example`](.env.example) for the defaults.
 
 ## Scripts
 
@@ -24,8 +35,8 @@ specific says so in its header. Script output is in Italian.
 - A target skips itself while the program using it is running.
 - `docker` never touches volumes or stopped containers.
 - `pacman` and `journal` need `sudo`.
-- `avd` deletes every AVD except one named `lite`, and recreates `lite` if
-  missing. The Android SDK is taken from `ANDROID_SDK_ROOT` / `ANDROID_HOME`.
+- `avd` deletes every AVD except `KEEP_AVD` (default `lite`), and recreates it
+  from `KEEP_AVD_IMAGE` if missing, using the SDK at `ANDROID_SDK_ROOT`.
 
 ## License
 
