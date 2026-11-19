@@ -19,8 +19,11 @@
 # pub: ~/.pub-cache — every Flutter project needs `flutter pub get` afterwards.
 # browser / ide: Chrome, Firefox and JetBrains/VS Code caches, not profiles.
 # journal: keeps the last two weeks of system logs (needs sudo).
-# docker: build cache and dangling images only — never volumes or stopped
-#   containers, which hold the local dev databases.
+# docker: build cache, dangling images, anonymous volumes no container uses
+#   (orphan node_modules mounts and the like) and stopped containers older than
+#   a week that Docker named itself (`docker run` without --name or --rm) and
+#   no compose project owns. Named volumes, which hold the local dev databases,
+#   and named or compose containers are never touched.
 set -euo pipefail
 # numfmt reads and writes decimals with the locale separator: docker prints
 # "10.44GB", which an Italian locale would read as 1044 GB.
@@ -55,7 +58,7 @@ declare -A DESC=(
   [ide]="JetBrains, VS Code, Antigravity caches"
   [thumbnails]="image thumbnails"
   [journal]="system logs older than 2 weeks (sudo)"
-  [docker]="build cache and dangling images"
+  [docker]="build cache, dangling images, orphan volumes"
   [flatpak]="unused flatpak runtimes"
 )
 
@@ -81,6 +84,18 @@ paths() {
 
 has() { command -v "$1" >/dev/null; }
 
+# Docker container row read by stale(), for `docker ps` and `docker system df -v`.
+# slice: `docker system df -v` breaks lines at the colons of a full CreatedAt.
+CT_ROW='{{.State}}\t{{slice .CreatedAt 0 10}}\t{{.Label "com.docker.compose.project"}}\t{{.Names}}'
+
+# stale: from "$CT_ROW\t<value>" rows, the value of every exited container
+# created more than a week ago, outside compose, with a name Docker generated
+# (adjective_surname), i.e. a leftover of `docker run` without --rm
+stale() {
+  awk -F'\t' -v cutoff="$(date -d '7 days ago' +%F)" \
+    '$1=="exited" && $2<cutoff && $3=="" && $4~/^[a-z]+_[a-z]+[0-9]*$/ {print $5}'
+}
+
 # bytes <target>: what the target would free, in bytes; empty when unknown
 bytes() {
   case "$1" in
@@ -89,9 +104,18 @@ bytes() {
         | numfmt --from=iec 2>/dev/null ;;
     docker)
       has docker || return 0
-      docker system df --format '{{.Type}}\t{{.Reclaimable}}' 2>/dev/null \
-        | awk -F'\t' '$1=="Build Cache"{split($2,a," "); sub(/B$/,"",a[1]); print a[1]}' \
-        | numfmt --from=si 2>/dev/null ;;
+      # the same set clean() removes; `df -v` takes a while on a busy daemon
+      local df
+      df=$(docker system df -v --format "{{range .Images}}I\t{{.Repository}}\t{{.UniqueSize}}{{println}}{{end}}{{range .Volumes}}V\t{{.Links}}\t{{.Labels}}\t{{.Size}}{{println}}{{end}}{{range .Containers}}C\t$CT_ROW\t{{.Size}}{{println}}{{end}}" 2>/dev/null) \
+        || return 0
+      {
+        docker system df --format '{{.Type}}\t{{.Reclaimable}}' 2>/dev/null \
+          | awk -F'\t' '$1=="Build Cache"{split($2,a," "); print a[1]}'
+        awk -F'\t' '$1=="I" && $2=="<none>" {print $3}
+                    $1=="V" && $2=="0" && $3~/com\.docker\.volume\.anonymous/ {print $4}' <<<"$df"
+        sed -n 's/^C\t//p' <<<"$df" | stale
+      } | sed 's/ .*//; s/B$//' | numfmt --from=si 2>/dev/null \
+        | awk '{s+=$1} END{print s+0}' ;;
     flatpak) ;;
     *)
       local p; p=$(paths "$1")
@@ -193,7 +217,11 @@ clean() {
     docker)
       has docker || return 0
       docker builder prune -af
-      docker image prune -f ;;
+      docker image prune -f
+      docker ps -a --format "$CT_ROW\t{{.ID}}" | stale | xargs -r docker rm
+      # Without -a (Docker 23+) only anonymous volumes go, including those of
+      # the containers just removed; named volumes keep the dev databases.
+      docker volume prune -f ;;
     flatpak)
       has flatpak || return 0
       flatpak uninstall --unused -y ;;

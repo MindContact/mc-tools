@@ -22,7 +22,7 @@ Every value is optional; each `.env.example` lists the defaults.
 
 | Script | What it does |
 |--------|--------------|
-| [`clean-caches`](clean-caches/) | Lists and clears developer caches (Gradle, npm/pnpm/yarn, pip, NuGet, Maven, pub, Playwright, browsers, IDEs, pacman/yay, journal, Docker build cache, flatpak), Android AVDs and the Claude desktop VM. |
+| [`clean-caches`](clean-caches/) | Lists and clears developer caches (Gradle, npm/pnpm/yarn, pip, NuGet, Maven, pub, Playwright, browsers, IDEs, pacman/yay, journal, Docker leftovers, flatpak), Android AVDs and the Claude desktop VM. |
 
 ### clean-caches
 
@@ -34,7 +34,10 @@ clean-caches/clean-caches.sh node pip docker # clear only the ones named
 
 - Everything it clears is re-downloaded or rebuilt on demand.
 - A target skips itself while the program using it is running.
-- `docker` never touches volumes or stopped containers.
+- `docker` clears the build cache, dangling images, anonymous volumes no
+  container uses, and stopped containers older than a week left by
+  `docker run` without `--name` or `--rm`. Named volumes (dev databases),
+  named containers and compose containers are never touched.
 - `pacman` and `journal` need `sudo`.
 - `avd` deletes every AVD except `KEEP_AVD` (default `lite`), and recreates it
   from `KEEP_AVD_IMAGE` if missing, using the SDK at `ANDROID_SDK_ROOT`.
